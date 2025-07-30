@@ -1,3 +1,4 @@
+from multiprocessing import freeze_support
 from transformers import AutoTokenizer, AutoModelForTokenClassification, Trainer, TrainingArguments
 from datasets import load_dataset, DatasetDict
 import numpy as np
@@ -6,6 +7,16 @@ import os
 
 import torch
 from torch.utils.data import Dataset, DataLoader
+
+# Check GPU availability
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"GPU device: {torch.cuda.get_device_name(0)}")
+    print(f"GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+    device = torch.device("cuda")
+else:
+    print("Using CPU")
+    device = torch.device("cpu")
 
 # Define labels
 labels = ["O", "B-PROVINCE", "I-PROVINCE", "B-DISTRICT", "I-DISTRICT", "B-WARD", "I-WARD"]
@@ -33,44 +44,35 @@ class NERDataset(Dataset):
         tokenized_inputs = []
         labels = []
         for word, word_label in zip(words, word_labels):
-            print(f"Word: {word}, Label: {word_label}")
             word_tokens = self.tokenizer.tokenize(word)
             n_subwords = len(word_tokens)
             tokenized_inputs.extend(word_tokens)
-
             labels.extend([label2id[word_label]] * n_subwords)
 
         # Cắt ngắn hoặc đệm nếu cần
-        tokenized_inputs = tokenized_inputs[:self.max_len - 2]  # Để có chỗ cho [CLS] và [SEP]
+        tokenized_inputs = tokenized_inputs[:self.max_len - 2]
         labels = labels[:self.max_len - 2]
 
-        # Thêm tokens đặc biệt
-        tokenized_inputs = ["[CLS]"] + tokenized_inputs + ["[SEP]"]
-        labels = [-100] + labels + [-100]  # -100 là giá trị bỏ qua cho loss
+        # Thêm tokens đặc biệt cho PhoBERT
+        tokenized_inputs = ["<s>"] + tokenized_inputs + ["</s>"]
+        labels = [-100] + labels + [-100]
 
         # Đệm nếu cần
         padding_length = self.max_len - len(tokenized_inputs)
-        tokenized_inputs += ["[PAD]"] * padding_length
+        tokenized_inputs += ["<pad>"] * padding_length
         labels += [-100] * padding_length
 
         # Chuyển đổi thành IDs
         input_ids = self.tokenizer.convert_tokens_to_ids(tokenized_inputs)
-        attention_mask = [1] * len(input_ids)
-
-        # Chuyển đổi thành tensors
-        input_ids = torch.tensor(input_ids)
-        attention_mask = torch.tensor(attention_mask)
-        labels = torch.tensor(labels)
+        attention_mask = [1 if token != "<pad>" else 0 for token in tokenized_inputs]
 
         return {
-            'input_ids': input_ids,
-            'attention_mask': attention_mask,
-            'labels': labels
+            'input_ids': torch.tensor(input_ids, dtype=torch.long),
+            'attention_mask': torch.tensor(attention_mask, dtype=torch.long),
+            'labels': torch.tensor(labels, dtype=torch.long)
         }
 
 MODEL_NAME = "vinai/phobert-base"
-
-
 
 # Load dataset from IOB2 files
 def load_iob2_file(file_path):
@@ -84,8 +86,8 @@ def load_iob2_file(file_path):
             line = line.strip()
             if line:
                 parts = line.split()
-                if parts:
-                    word, label = parts
+                if len(parts) >= 2:
+                    word, label = parts[0], parts[1]
                     current_sentence.append(word)
                     current_labels.append(label)
             else:
@@ -95,53 +97,62 @@ def load_iob2_file(file_path):
                 current_sentence = []
                 current_labels = []
 
-    if current_sentence:  # Thêm câu cuối cùng nếu có
+    if current_sentence:
         sentences.append(' '.join(current_sentence))
         labels.append(current_labels)
 
     return sentences, labels
 
-# Load your data using the existing function
-train_data = load_iob2_file("data/train.txt")
-
-# validation_data = load_iob2_file("data/valid.txt") 
-# test_data = load_iob2_file("data/test.txt")
+# Load your data
+print("Loading training data...")
+train_data = load_iob2_file("data/ner_train.txt")
+print(f"Loaded {len(train_data[0])} training examples")
 
 # Tokenizer
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
 
-# Create your custom dataset
+# Create datasets
 train_dataset = NERDataset(
     sentences=train_data[0],
     labels=train_data[1],
     tokenizer=tokenizer,
-    max_len=128  # or whatever max length you want
+    max_len=128
 )
 
-
-# Create DataLoader
-train_dataloader = DataLoader(
-    train_dataset,
-    batch_size=8,
-    shuffle=True,
-    num_workers=2
-)
-
-
-# Load model
+# Load model and move to GPU
+print("Loading model...")
 model = AutoModelForTokenClassification.from_pretrained(
-    MODEL_NAME, num_labels=len(labels), id2label=id2label, label2id=label2id
+    MODEL_NAME, 
+    num_labels=len(labels), 
+    id2label=id2label, 
+    label2id=label2id
 )
 
-# Training arguments
+# GPU-optimized training arguments
 training_args = TrainingArguments(
     output_dir="./ner-model",
-    #eval_strategy="epoch",
     learning_rate=2e-5,
-    per_device_train_batch_size=8,
-    per_device_eval_batch_size=8,
+    per_device_train_batch_size=16,  # Increased batch size for GPU
+    per_device_eval_batch_size=16,
     num_train_epochs=5,
     weight_decay=0.01,
+    warmup_steps=500,
+    logging_steps=100,
+    save_steps=1000,
+    eval_strategy="no",  # Disable evaluation for faster training
+    save_strategy="epoch",
+    load_best_model_at_end=False,
+    metric_for_best_model="f1",
+    greater_is_better=True,
+    # GPU-specific optimizations
+    fp16=torch.cuda.is_available(),  # Mixed precision training
+    dataloader_pin_memory=True,
+    dataloader_num_workers=4 if torch.cuda.is_available() else 0,
+    remove_unused_columns=False,
+    # Gradient accumulation for larger effective batch size
+    gradient_accumulation_steps=2,
+    # Memory optimizations
+    dataloader_drop_last=True,
 )
 
 # Compute metrics
@@ -150,33 +161,26 @@ def compute_metrics(p):
     preds = np.argmax(predictions, axis=2)
 
     true_labels = [[id2label[l] for l in label if l != -100] for label in labels]
-    true_preds = [[id2label[p] for (p, l) in zip(pred, label) if l != -100] for pred, label in zip(preds, labels)]
+    true_preds = [[id2label[p] for (p, l) in zip(pred, label) if l != -100] 
+                  for pred, label in zip(preds, labels)]
 
     return {
         "f1": f1_score(true_labels, true_preds),
-        "report": classification_report(true_labels, true_preds),
     }
 
-# Update the Trainer to use your custom dataset
+# Create trainer
 trainer = Trainer(
     model=model,
     args=training_args,
-    train_dataset=train_dataset,  # Use your NERDataset here
-    # eval_dataset=validation_dataset,  # If you create one
+    train_dataset=train_dataset,
     tokenizer=tokenizer,
     compute_metrics=compute_metrics,
 )
-# Train
-trainer.train()
-
-# Save model
-trainer.save_model("ner-model/ner_province_district_ward")
 
 
-
-# Additional function to test with custom text
+# GPU-optimized prediction function
 def predict_custom_text(text):
-    """Test model with custom input text"""
+    """Test model with custom input text using GPU"""
     print(f"\nCustom prediction for: '{text}'")
     print("-" * 50)
     
@@ -195,14 +199,9 @@ def predict_custom_text(text):
     input_ids = tokenizer.convert_tokens_to_ids(tokenized_inputs)
     attention_mask = [1] * len(input_ids)
     
-    # Convert to tensors
-    input_ids = torch.tensor(input_ids).unsqueeze(0)
-    attention_mask = torch.tensor(attention_mask).unsqueeze(0)
-    
-    # Move to GPU if available
-    if torch.cuda.is_available():
-        input_ids = input_ids.cuda()
-        attention_mask = attention_mask.cuda()
+    # Convert to tensors and move to GPU
+    input_ids = torch.tensor(input_ids).unsqueeze(0).to(device)
+    attention_mask = torch.tensor(attention_mask).unsqueeze(0).to(device)
     
     # Get predictions
     model.eval()
@@ -220,16 +219,45 @@ def predict_custom_text(text):
             pred_tag = id2label[pred]
             print(f"{token:<15} {pred_tag:<12}")
 
-# Test with some custom examples
-custom_examples = [
-    "Phường 1 Quận Bình Thạnh Hồ Chí Minh",
-    "Xã Tân Phú Huyện Châu Thành Tỉnh Đồng Tháp",
-    "Thị trấn Long Thành Huyện Long Thành Đồng Nai"
-]
 
-print("\n" + "=" * 80)
-print("CUSTOM TEXT PREDICTIONS")
-print("=" * 80)
+    
+    
+if __name__ == '__main__':
+    freeze_support()
+    
+    # Train with GPU acceleration
+    print("Starting training...")
+    print(f"Training on device: {training_args.device}")
 
-for example in custom_examples:
-    predict_custom_text(example)
+    # Clear GPU cache before training
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+    trainer.train()
+
+    # Save model
+    print("Saving model...")
+    trainer.save_model("ner-model/ner_province_district_ward")
+    tokenizer.save_pretrained("ner-model/ner_province_district_ward")
+
+    # Clear GPU memory after training
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    
+    # Test with some custom examples
+    custom_examples = [
+        "Phường 1, Quận Bình Thạnh, Hồ Chí Minh",
+        "Xã Tân Phú, Huyện Châu Thành, Tỉnh Đồng Tháp",
+        "Thị trấn Long Thành, Huyện Long Thành, Đồng Nai"
+    ]
+
+    print("\n" + "=" * 80)
+    print("CUSTOM TEXT PREDICTIONS")
+    print("=" * 80)
+
+    for example in custom_examples:
+        predict_custom_text(example)
+
+    print(f"\nTraining completed! Model saved to: ner-model/ner_province_district_ward")
+    if torch.cuda.is_available():
+        print(f"GPU memory used: {torch.cuda.max_memory_allocated() / 1024**3:.1f} GB")

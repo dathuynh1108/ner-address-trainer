@@ -1,3 +1,4 @@
 ner-model/*
 venv
 .venv
+data/
