@@ -1,4 +1,4 @@
 ner-model/*
 venv
 .venv
-data/
+data/ner_train.txt

@@ -1,0 +1,32 @@
+[
+  {
+    "address": "Số 9 Đường 14, Tổ 3, Khu phố Gò Công, Phường Long Thạnh Mỹ, Thành phố Thủ Đức, Thành phố Hồ Chí Minh, Việt Nam",
+    "province": "thành phố hồ chí minh",
+    "district": "thành phố thủ đức",
+    "ward": "phường long thạnh mỹ"
+  },
+  {
+    "address": "Số 6 Nguyễn Trung Trực, Phường 5, Quận Bình Thạnh, Thành phố Hồ Chí Minh, Việt Nam",
+    "province": "thành phố hồ chí minh",
+    "district": "quận bình thạnh",
+    "ward": "phường 5"
+  },
+  {
+    "address": "158 Bùi Tá Hán, Phường An Phú, Thành phố Thủ Đức, Thành phố Hồ Chí Minh, Việt Nam",
+    "province": "thành phố hồ chí minh",
+    "district": "thành phố thủ đức",
+    "ward": "phường an phú"
+  },
+  {
+    "address": "Số 11 Đường 2B, Phường An Lạc, Quận Bình Tân, Thành phố Hồ Chí Minh, Việt Nam",
+    "province": "thành phố hồ chí minh",
+    "district": "quận bình tân",
+    "ward": "phường an lạc"
+  },
+  {
+    "address": "1 Hồng Đức, Phường Bình Thọ, Quận Thủ Đức, Thành phố Hồ Chí Minh, Việt Nam",
+    "province": "thành phố hồ chí minh",
+    "district": "quận thủ đức",
+    "ward": "phường bình thọ"
+  }
+]
