@@ -41,18 +41,14 @@ def generate_address_variations_with_separator(province, district, ward, separat
         f"{ward}{separator} {district}{separator} {province}",
         f"{province}{separator} {district}{separator} {ward}",
         f"{district}{separator} {ward}{separator} {province}",
-        f"{ward} {district} {province}",  # No separator version
-        #f"{ward}{separator} {district}",
         f"{district}{separator} {province}"
     ]
     
     # Generate variations with trimmed names
     trimmed_variations = [
         f"{ward_trimmed}{separator} {district_trimmed}{separator} {province_trimmed}",
-        f"{province_trimmed}{separator} {   district_trimmed}{separator} {ward_trimmed}",
+        f"{province_trimmed}{separator} {district_trimmed}{separator} {ward_trimmed}",
         f"{district_trimmed}{separator} {ward_trimmed}{separator} {province_trimmed}",
-        f"{ward_trimmed} {district_trimmed} {province_trimmed}",  # No separator version
-        #f"{ward_trimmed}{separator} {district_trimmed}",
         f"{district_trimmed}{separator} {province_trimmed}"
     ]
     
@@ -144,15 +140,20 @@ generated_data = []
 for province, district, ward in administrative_units:
     separators = [",", ";", ""]
     
+    variations = []
+    vistied_addresses = set()
     for sep in separators:
         variations = generate_address_variations_with_separator(province, district, ward, sep)
         for address, prov_label, dist_label, ward_label in variations:
-            generated_data.append({
-                'address': address,
-                'province': prov_label,
-                'district': dist_label,
-                'ward': ward_label
-            })
+            if address not in vistied_addresses:
+                vistied_addresses.add(address)
+                
+                generated_data.append({
+                    'address': address,
+                    'province': prov_label,
+                    'district': dist_label,
+                    'ward': ward_label
+                })
 
 # Read existing JSON data if it exists
 try:
@@ -166,7 +167,9 @@ all_data = existing_data + generated_data
 
 # Shuffle the combined data
 random.shuffle(all_data)
-print("Generated", len(all_data), "training examples")
+
+print("Generated", len(generated_data), "training examples")
+
 # Write combined data back to JSON
 with open('data/addresses.json', 'w', encoding='utf-8') as f:
     json.dump(all_data, f, ensure_ascii=False, indent=2)
