@@ -4,16 +4,21 @@ from datasets import load_dataset, DatasetDict
 import numpy as np
 from seqeval.metrics import classification_report, f1_score
 import os
-
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-# Check GPU availability
+# Check GPU availability (including macOS MPS)
 print(f"CUDA available: {torch.cuda.is_available()}")
+print(f"MPS available: {torch.backends.mps.is_available()}")
+
 if torch.cuda.is_available():
     print(f"GPU device: {torch.cuda.get_device_name(0)}")
     print(f"GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
     device = torch.device("cuda")
+    print("Using CUDA GPU")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+    print("Using macOS Metal Performance Shaders (MPS)")
 else:
     print("Using CPU")
     device = torch.device("cpu")
@@ -144,10 +149,10 @@ training_args = TrainingArguments(
     load_best_model_at_end=False,
     metric_for_best_model="f1",
     greater_is_better=True,
-    # GPU-specific optimizations
-    fp16=torch.cuda.is_available(),  # Mixed precision training
+    # GPU-specific optimizations (works for both CUDA and MPS)
+    fp16=torch.cuda.is_available(),  # Only use fp16 for CUDA, not MPS
     dataloader_pin_memory=True,
-    dataloader_num_workers=4 if torch.cuda.is_available() else 0,
+    dataloader_num_workers=4 if (torch.cuda.is_available() or torch.backends.mps.is_available()) else 0,
     remove_unused_columns=False,
     # Gradient accumulation for larger effective batch size
     gradient_accumulation_steps=2,
@@ -232,6 +237,8 @@ if __name__ == '__main__':
     # Clear GPU cache before training
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+    elif torch.backends.mps.is_available():
+        torch.mps.empty_cache()
 
     trainer.train()
 
@@ -243,6 +250,10 @@ if __name__ == '__main__':
     # Clear GPU memory after training
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+        print(f"GPU memory used: {torch.cuda.max_memory_allocated() / 1024**3:.1f} GB")
+    elif torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+        print("MPS memory cleared")
     
     # Test with some custom examples
     custom_examples = [

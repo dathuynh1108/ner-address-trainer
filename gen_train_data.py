@@ -3,7 +3,7 @@ import re
 
 def tokenize(text):
     # Tách từ và giữ lại dấu câu
-    text = re.sub(r'([.,!?()])', r' \1 ', text)
+    text = re.sub(r'([;.,!?()])', r' \1 ', text)
     text = re.sub(r'\s+', ' ', text)
     return text.strip().split()
 
