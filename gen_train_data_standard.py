@@ -2,7 +2,7 @@ import json
 import re
 import random
 import csv
-
+from utils import normalize_string, normalize_vietnamese
 
 DISTRICT_PREFIX_REGEX = re.compile(
     r"^(?:q\.?\s?\d*|quan|quận|h\.?\s?|huyen|huyện|tp\.?|t\.p\.?|thanh pho|thành phố|thi xa|thị xã|tx\.?\s?)\b\.?,?\s*",
@@ -144,6 +144,40 @@ for province, district, ward in administrative_units:
     vistied_addresses = set()
     for sep in separators:
         variations = generate_address_variations_with_separator(province, district, ward, sep)
+        for address, prov_label, dist_label, ward_label in variations:
+            if address not in vistied_addresses:
+                vistied_addresses.add(address)
+                
+                generated_data.append({
+                    'address': address,
+                    'province': prov_label,
+                    'district': dist_label,
+                    'ward': ward_label
+                })
+    
+        variations = generate_address_variations_with_separator(
+            normalize_string(province), 
+            normalize_string(district), 
+            normalize_string(ward), 
+            sep,
+        )
+        for address, prov_label, dist_label, ward_label in variations:
+            if address not in vistied_addresses:
+                vistied_addresses.add(address)
+                
+                generated_data.append({
+                    'address': address,
+                    'province': prov_label,
+                    'district': dist_label,
+                    'ward': ward_label
+                })
+                
+        variations = generate_address_variations_with_separator(
+            normalize_vietnamese(province), 
+            normalize_vietnamese(district), 
+            normalize_vietnamese(ward), 
+            sep,
+        )
         for address, prov_label, dist_label, ward_label in variations:
             if address not in vistied_addresses:
                 vistied_addresses.add(address)

@@ -108,21 +108,91 @@ def load_iob2_file(file_path):
 
     return sentences, labels
 
-# Load your data
-print("Loading training data...")
-train_data = load_iob2_file("data/ner_train.txt")
-print(f"Loaded {len(train_data[0])} training examples")
+def load_iob2_file_generator(file_path, chunk_size=1000):
+    """Generator that yields chunks of sentences to avoid loading entire file into memory"""
+    sentences = []
+    labels = []
+    current_sentence = []
+    current_labels = []
+    
+    with open(file_path, 'r', encoding='utf-8') as file:
+        for line in file:
+            line = line.strip()
+            if line:
+                parts = line.split()
+                if len(parts) >= 2:
+                    word, label = parts[0], parts[1]
+                    current_sentence.append(word)
+                    current_labels.append(label)
+            else:
+                if current_sentence:
+                    sentences.append(' '.join(current_sentence))
+                    labels.append(current_labels)
+                    current_sentence = []
+                    current_labels = []
+                    
+                    # Yield chunk when it reaches chunk_size
+                    if len(sentences) >= chunk_size:
+                        yield sentences, labels
+                        sentences = []
+                        labels = []
+    
+    # Yield remaining data
+    if current_sentence:
+        sentences.append(' '.join(current_sentence))
+        labels.append(current_labels)
+    
+    if sentences:
+        yield sentences, labels
+
+def load_iob2_file_streaming(file_path):
+    """Stream processing for very large files"""
+    all_sentences = []
+    all_labels = []
+    
+    for sentence_chunk, label_chunk in load_iob2_file_generator(file_path, chunk_size=1000):
+        all_sentences.extend(sentence_chunk)
+        all_labels.extend(label_chunk)
+        
+        # Optional: Print progress
+        if len(all_sentences) % 10000 == 0:
+            print(f"Loaded {len(all_sentences)} sentences...")
+    
+    return all_sentences, all_labels
 
 # Tokenizer
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=False)
+# Load your data
+print("Loading training data...")
 
-# Create datasets
-train_dataset = NERDataset(
-    sentences=train_data[0],
-    labels=train_data[1],
-    tokenizer=tokenizer,
-    max_len=128
-)
+# Check file size first
+file_size = os.path.getsize("data/ner_train.txt") / (1024**2)  # MB
+print(f"Training file size: {file_size:.1f} MB")
+
+if file_size > 100:  # If file is larger than 100MB
+    print("Large file detected, using streaming approach...")
+    train_data = load_iob2_file_streaming("data/ner_train.txt")
+    
+    # Create regular dataset
+    train_dataset = NERDataset(
+        sentences=train_data[0],
+        labels=train_data[1],
+        tokenizer=tokenizer,
+        max_len=128
+    )
+else:
+    print("Using standard loading...")
+    train_data = load_iob2_file("data/ner_train.txt")
+    
+    # Create regular dataset
+    train_dataset = NERDataset(
+        sentences=train_data[0],
+        labels=train_data[1],
+        tokenizer=tokenizer,
+        max_len=128
+    )
+
+print(f"Loaded {len(train_dataset)} training examples")
 
 # Load model and move to GPU
 print("Loading model...")
